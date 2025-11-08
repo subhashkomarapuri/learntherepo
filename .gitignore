@@ -1,0 +1,23 @@
+# Environment variables
+.env
+.env.local
+
+# Dependencies
+node_modules/
+deno.lock
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Build outputs
+dist/
+build/
