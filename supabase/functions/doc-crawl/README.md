@@ -260,7 +260,10 @@ curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/doc-crawl
 ## How It Works
 
 1. **Validate Input**: Checks for required `url` parameter
-2. **Extract Links**: Calls `doc-link-extract` to get documentation URLs from the repository's README
+2. **Extract Links**: Calls `doc-link-extract` to get documentation URLs from the repository's README  curl -i --location --request POST 'http://127.0.0.1:54321/functions/v1/github-doc' \
+    --header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0' \
+    --header 'Content-Type: application/json' \
+    --data '{"url":"https://github.com/octocat/Hello-World","ref":"main"}'
 3. **Batch Processing**: Divides links into batches of 4 for concurrent processing
 4. **Crawl URLs**: For each batch:
    - Sends POST request to Crawl4AI with `{ url, f: "fit", q: null, c: "0" }`

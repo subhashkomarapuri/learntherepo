@@ -1,6 +1,7 @@
 # Environment variables
 .env
 .env.local
+supabase/.env
 
 # Dependencies
 node_modules/
