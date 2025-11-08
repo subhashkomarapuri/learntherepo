@@ -76,12 +76,55 @@ export const RAG_CONFIG = {
 } as const
 
 /**
+ * Tavily Search Configuration
+ * All search parameters are configurable here
+ */
+export const TAVILY_CONFIG = {
+  // API endpoint
+  apiUrl: 'https://api.tavily.com/search',
+  
+  // Default search parameters
+  defaultSearchDepth: 'advanced' as 'basic' | 'advanced',
+  defaultMaxResults: 10,
+  
+  // Content inclusion
+  includeImages: false,
+  includeAnswer: true,        // Get AI-generated answer summary
+  
+  // Extended reading (for summary generation)
+  extendedReadingMaxResults: 5,
+  
+  // Preferred domains for repository searches
+  preferredDomains: [
+    // Documentation sites
+    'docs.github.com',
+    'readthedocs.io',
+    'github.io',
+    // Tutorial sites
+    'dev.to',
+    'medium.com',
+    'stackoverflow.com',
+    'hackernoon.com'
+  ] as string[],
+  
+  // Context limits
+  maxContextLength: 3000,     // Max characters from search results
+  
+  // Timeout
+  timeout: 30000,             // 30 seconds
+  
+  // RAG fallback threshold
+  // If RAG similarity < this, consider web search
+  ragFallbackThreshold: 0.5
+} as const
+
+/**
  * MCP Tools Configuration
  * Structure for future Model Context Protocol integration
  */
 export const MCP_CONFIG = {
   // Enable/disable MCP tools
-  enabled: false,
+  enabled: true,              // NOW ENABLED for Tavily integration
   
   // Available tools (to be populated when MCP is integrated)
   tools: [] as MCPTool[],

@@ -75,6 +75,17 @@ export interface RepositorySummary {
   quickStart: string
   useCases: string[]
   additionalInfo?: string
+  extendedReading?: ExtendedReadingLink[]  // NEW: Web search results
+}
+
+/**
+ * Extended reading link from web search
+ */
+export interface ExtendedReadingLink {
+  title: string
+  url: string
+  snippet: string
+  relevance: number
 }
 
 /**
@@ -236,8 +247,39 @@ export interface MatchDocumentsResult {
  * OpenAI chat message format
  */
 export interface OpenAIChatMessage {
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  tool_calls?: OpenAIToolCall[]
+  tool_call_id?: string
+  name?: string
+}
+
+/**
+ * OpenAI tool call structure
+ */
+export interface OpenAIToolCall {
+  id: string
+  type: 'function'
+  function: {
+    name: string
+    arguments: string
+  }
+}
+
+/**
+ * OpenAI tool definition
+ */
+export interface OpenAITool {
+  type: 'function'
+  function: {
+    name: string
+    description: string
+    parameters: {
+      type: 'object'
+      properties: Record<string, unknown>
+      required?: string[]
+    }
+  }
 }
 
 /**
@@ -252,7 +294,8 @@ export interface OpenAIChatResponse {
     index: number
     message: {
       role: string
-      content: string
+      content: string | null
+      tool_calls?: OpenAIToolCall[]
     }
     finish_reason: string
   }>

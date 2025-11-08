@@ -39,6 +39,10 @@ The chat function provides two main capabilities:
 - Placeholder for Model Context Protocol tools
 - Structured for future extension
 - Tool execution framework built-in
+- **NEW: Tavily Search Integration** 🔍
+  - Web search capabilities via REST API
+  - Extended reading in summaries
+  - Automatic tool calling when RAG insufficient
 
 ## Architecture
 
@@ -75,6 +79,7 @@ POST /chat (action: "history")
 2. **Environment Variables** (in `supabase/.env`):
    ```
    OPENAI_API_KEY=sk-proj-...
+   TAVILY_API_KEY=tvly-...  # Optional: For web search features
    SUPABASE_URL=http://127.0.0.1:54321
    SUPABASE_ANON_KEY=...
    SUPABASE_SERVICE_ROLE_KEY=...

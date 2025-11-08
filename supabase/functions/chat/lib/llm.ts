@@ -1,10 +1,12 @@
 /**
  * OpenAI LLM integration module
  * Supports both conversational chat and structured JSON output
+ * Includes MCP tool calling support
  */
 
 import { OPENAI_CONFIG, LLM_CONFIG, MCP_CONFIG } from './config.ts'
-import type { OpenAIChatMessage, OpenAIChatResponse } from './types.ts'
+import type { OpenAIChatMessage, OpenAIChatResponse, OpenAITool, OpenAIToolCall } from './types.ts'
+import { searchWeb } from './tavily.ts'
 
 /**
  * LLM request configuration
@@ -17,14 +19,14 @@ export interface LLMConfig {
   frequencyPenalty?: number
   presencePenalty?: number
   responseFormat?: 'text' | 'json_object'
-  tools?: unknown[]  // For future MCP integration
+  tools?: OpenAITool[]  // MCP tools
 }
 
 /**
  * LLM response
  */
 export interface LLMResponse {
-  content: string
+  content: string | null
   model: string
   usage: {
     promptTokens: number
@@ -32,6 +34,7 @@ export interface LLMResponse {
     totalTokens: number
   }
   finishReason: string
+  toolCalls?: OpenAIToolCall[]
 }
 
 /**
@@ -128,7 +131,8 @@ export async function callOpenAI(
           completionTokens: data.usage.completion_tokens,
           totalTokens: data.usage.total_tokens
         },
-        finishReason: choice.finish_reason
+        finishReason: choice.finish_reason,
+        toolCalls: choice.message.tool_calls
       }
 
     } catch (error) {
@@ -149,7 +153,7 @@ export async function callOpenAI(
 /**
  * Generate chat completion for conversational use
  */
-export async function generateChatCompletion(
+export function generateChatCompletion(
   messages: OpenAIChatMessage[],
   useCase: 'summary' | 'chat',
   apiKey: string
@@ -170,7 +174,7 @@ export async function generateChatCompletion(
 /**
  * Generate structured JSON output (for summary generation)
  */
-export async function generateStructuredOutput(
+export function generateStructuredOutput(
   messages: OpenAIChatMessage[],
   apiKey: string
 ): Promise<LLMResponse> {
@@ -222,31 +226,138 @@ export function estimateCost(
 }
 
 /**
- * Placeholder for future MCP tool execution
- * This will be implemented when adding MCP support
+ * Execute MCP tool call
  */
 export async function executeToolCall(
   toolName: string,
-  toolParams: Record<string, unknown>
-): Promise<unknown> {
+  toolParams: Record<string, unknown>,
+  tavilyApiKey?: string
+): Promise<string> {
   if (!MCP_CONFIG.enabled) {
     throw new Error('MCP tools are not enabled')
-  }
-
-  const tool = MCP_CONFIG.tools.find(t => t.name === toolName)
-  if (!tool) {
-    throw new Error(`Tool not found: ${toolName}`)
   }
 
   console.log(`Executing tool: ${toolName}`, toolParams)
   
   try {
-    const result = await tool.handler(toolParams)
-    return result
+    switch (toolName) {
+      case 'tavily_search': {
+        if (!tavilyApiKey) {
+          throw new Error('Tavily API key not provided')
+        }
+        
+        const query = toolParams.query as string
+        const maxResults = toolParams.max_results as number | undefined
+        
+        const result = await searchWeb(query, tavilyApiKey, { maxResults })
+        
+        // Format results for LLM
+        const formatted = {
+          query: result.searchQuery,
+          summary: result.summary,
+          sources: result.sources.map(s => ({
+            title: s.title,
+            url: s.url,
+            content: s.snippet
+          }))
+        }
+        
+        return JSON.stringify(formatted, null, 2)
+      }
+      
+      default:
+        throw new Error(`Unknown tool: ${toolName}`)
+    }
   } catch (error) {
     console.error(`Tool execution failed: ${toolName}`, error)
     throw error
   }
+}
+
+/**
+ * Generate chat completion with tool calling support
+ * Handles iterative tool calling loop
+ */
+export async function generateChatCompletionWithTools(
+  messages: OpenAIChatMessage[],
+  tools: OpenAITool[],
+  apiKey: string,
+  tavilyApiKey?: string,
+  useCase: 'summary' | 'chat' = 'chat'
+): Promise<LLMResponse> {
+  const config: LLMConfig = {
+    model: LLM_CONFIG.models[useCase],
+    temperature: LLM_CONFIG.temperature[useCase],
+    maxTokens: LLM_CONFIG.maxTokens[useCase],
+    topP: LLM_CONFIG.topP[useCase],
+    frequencyPenalty: LLM_CONFIG.frequencyPenalty[useCase],
+    presencePenalty: LLM_CONFIG.presencePenalty[useCase],
+    responseFormat: 'text',
+    tools
+  }
+
+  const currentMessages = [...messages]
+  let iterationCount = 0
+  const totalUsage = {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0
+  }
+
+  while (iterationCount < MCP_CONFIG.maxToolCalls) {
+    iterationCount++
+    
+    const response = await callOpenAI(currentMessages, config, apiKey)
+    
+    // Accumulate token usage
+    totalUsage.promptTokens += response.usage.promptTokens
+    totalUsage.completionTokens += response.usage.completionTokens
+    totalUsage.totalTokens += response.usage.totalTokens
+
+    // If no tool calls, we're done
+    if (!response.toolCalls || response.toolCalls.length === 0) {
+      return {
+        ...response,
+        usage: totalUsage
+      }
+    }
+
+    // Execute tool calls
+    console.log(`Processing ${response.toolCalls.length} tool call(s)`)
+    
+    // Add assistant message with tool calls
+    currentMessages.push({
+      role: 'assistant',
+      content: response.content || '',
+      tool_calls: response.toolCalls
+    })
+
+    // Execute each tool call and add results
+    for (const toolCall of response.toolCalls) {
+      try {
+        const params = JSON.parse(toolCall.function.arguments)
+        const result = await executeToolCall(toolCall.function.name, params, tavilyApiKey)
+        
+        currentMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          name: toolCall.function.name,
+          content: result
+        })
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        currentMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          name: toolCall.function.name,
+          content: JSON.stringify({ error: errorMessage })
+        })
+      }
+    }
+  }
+
+  // Max iterations reached
+  throw new Error(`Maximum tool call iterations (${MCP_CONFIG.maxToolCalls}) exceeded`)
 }
 
 /**

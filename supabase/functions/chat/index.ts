@@ -28,9 +28,10 @@ import {
 } from './lib/storage.ts'
 import { generateSummary } from './lib/summary.ts'
 import { performRAG } from './lib/rag.ts'
-import { generateChatCompletion } from './lib/llm.ts'
+import { generateChatCompletionWithTools } from './lib/llm.ts'
 import { getChatSystemPrompt } from './lib/prompts.ts'
-import { SESSION_CONFIG } from './lib/config.ts'
+import { SESSION_CONFIG, MCP_CONFIG } from './lib/config.ts'
+import type { OpenAITool } from './lib/types.ts'
 
 /**
  * Parse GitHub URL to extract owner and repo
@@ -186,7 +187,8 @@ async function handleSummary(
   supabaseUrl: string,
   supabaseServiceKey: string,
   supabaseAnonKey: string,
-  openaiApiKey: string
+  openaiApiKey: string,
+  tavilyApiKey?: string
 ): Promise<SummaryResponse | ErrorResponse> {
   const { sessionId, regenerate = false } = request
 
@@ -224,7 +226,8 @@ async function handleSummary(
     sessionInfo.repositoryRef,
     supabaseUrl,
     supabaseAnonKey,
-    openaiApiKey
+    openaiApiKey,
+    tavilyApiKey  // Pass Tavily API key for extended reading
   )
 
   // Store summary
@@ -245,7 +248,8 @@ async function handleMessage(
   request: MessageRequest,
   supabaseUrl: string,
   supabaseServiceKey: string,
-  openaiApiKey: string
+  openaiApiKey: string,
+  tavilyApiKey?: string
 ): Promise<MessageResponse | ErrorResponse> {
   const { sessionId, message, ragConfig } = request
 
@@ -287,7 +291,33 @@ async function handleMessage(
     ragConfig
   )
 
-  // Generate response with LLM
+  // Prepare tools for LLM (Tavily search)
+  const tools: OpenAITool[] = []
+  if (MCP_CONFIG.enabled && tavilyApiKey) {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'tavily_search',
+        description: 'Search the web for current information, tutorials, articles, and documentation. Use this when the repository documentation doesn\'t contain the answer, or when user asks for latest/recent information.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'The search query. Be specific and clear.'
+            },
+            max_results: {
+              type: 'number',
+              description: 'Maximum number of results to return (default: 10)'
+            }
+          },
+          required: ['query']
+        }
+      }
+    })
+  }
+
+  // Generate response with LLM (with tool calling support)
   const systemPrompt = getChatSystemPrompt(
     summary || {
       title: `${repository.owner}/${repository.repo}`,
@@ -302,13 +332,15 @@ async function handleMessage(
     ragResult.useFallback ? null : ragResult.sources
   )
 
-  const llmResponse = await generateChatCompletion(
+  const llmResponse = await generateChatCompletionWithTools(
     [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: message }
     ],
-    'chat',
-    openaiApiKey
+    tools,
+    openaiApiKey,
+    tavilyApiKey,
+    'chat'
   )
 
   // Store assistant message
@@ -316,20 +348,21 @@ async function handleMessage(
     client,
     sessionId,
     'assistant',
-    llmResponse.content,
+    llmResponse.content || '',
     ragResult.sources,
     {
       model: llmResponse.model,
       usedRagContext: !ragResult.useFallback,
       usedFallback: ragResult.useFallback,
-      tokensUsed: llmResponse.usage.totalTokens
+      tokensUsed: llmResponse.usage.totalTokens,
+      toolCallsUsed: llmResponse.toolCalls ? llmResponse.toolCalls.length : 0
     }
   )
 
   return {
     success: true,
     messageId: assistantMessage.id,
-    answer: llmResponse.content,
+    answer: llmResponse.content || '',
     sources: ragResult.sources,
     usedRagContext: !ragResult.useFallback,
     usedFallback: ragResult.useFallback,
@@ -409,6 +442,7 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY')
+    const tavilyApiKey = Deno.env.get('TAVILY_API_KEY')  // Optional
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
       return new Response(
@@ -447,11 +481,11 @@ Deno.serve(async (req) => {
         break
 
       case 'summary':
-        result = await handleSummary(body, supabaseUrl, supabaseServiceKey, supabaseAnonKey, openaiApiKey)
+        result = await handleSummary(body, supabaseUrl, supabaseServiceKey, supabaseAnonKey, openaiApiKey, tavilyApiKey)
         break
 
       case 'message':
-        result = await handleMessage(body, supabaseUrl, supabaseServiceKey, openaiApiKey)
+        result = await handleMessage(body, supabaseUrl, supabaseServiceKey, openaiApiKey, tavilyApiKey)
         break
 
       case 'history':

@@ -6,6 +6,7 @@
 import { SUMMARY_CONFIG } from './config.ts'
 import { getSummaryPrompt, getSummaryUserMessage } from './prompts.ts'
 import { generateStructuredOutput } from './llm.ts'
+import { searchRepositoryInfo } from './tavily.ts'
 import type { RepositorySummary, DocumentationLink } from './types.ts'
 
 /**
@@ -107,7 +108,8 @@ export async function generateSummary(
   ref: string,
   supabaseUrl: string,
   supabaseKey: string,
-  openaiApiKey: string
+  openaiApiKey: string,
+  tavilyApiKey?: string
 ): Promise<RepositorySummary> {
   console.log('Generating summary for repository...')
 
@@ -151,7 +153,7 @@ export async function generateSummary(
   let summary: RepositorySummary
   
   try {
-    summary = JSON.parse(response.content)
+    summary = JSON.parse(response.content || '{}')
   } catch (error) {
     console.error('Failed to parse LLM response as JSON:', error)
     throw new Error('LLM did not return valid JSON')
@@ -173,6 +175,34 @@ export async function generateSummary(
     if (!(field in summary)) {
       throw new Error(`Missing required field in summary: ${field}`)
     }
+  }
+
+  // Step 5: Add Extended Reading using Tavily search (if API key provided)
+  if (tavilyApiKey) {
+    console.log('Searching for extended reading materials...')
+    try {
+      // Extract owner and repo from GitHub URL
+      const urlMatch = githubUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/)
+      if (urlMatch) {
+        const [, owner, repo] = urlMatch
+        const searchResult = await searchRepositoryInfo(repo, owner, tavilyApiKey)
+        
+        summary.extendedReading = searchResult.sources.map(source => ({
+          title: source.title,
+          url: source.url,
+          snippet: source.snippet,
+          relevance: source.relevance
+        }))
+        
+        console.log(`Found ${summary.extendedReading.length} extended reading resources`)
+      }
+    } catch (error) {
+      console.error('Failed to fetch extended reading:', error)
+      // Don't fail the entire summary generation if extended reading fails
+      summary.extendedReading = []
+    }
+  } else {
+    console.log('Tavily API key not provided, skipping extended reading')
   }
 
   console.log('Summary generated successfully')
@@ -209,7 +239,7 @@ export function validateSummary(summary: unknown): summary is RepositorySummary 
  * Format summary for display
  */
 export function formatSummary(summary: RepositorySummary): string {
-  return `
+  let formatted = `
 # ${summary.title}
 
 ${summary.description}
@@ -231,7 +261,19 @@ ${summary.useCases.map(u => `- ${u}`).join('\n')}
 
 ## Documentation Links
 ${summary.documentationLinks.map(l => `- [${l.title}](${l.url})`).join('\n')}
+`
 
-${summary.additionalInfo ? `## Additional Information\n${summary.additionalInfo}` : ''}
-`.trim()
+  // Add Extended Reading section if available
+  if (summary.extendedReading && summary.extendedReading.length > 0) {
+    formatted += `\n## Extended Reading\n`
+    formatted += summary.extendedReading.map(r => 
+      `- [${r.title}](${r.url})\n  ${r.snippet}`
+    ).join('\n\n')
+  }
+
+  if (summary.additionalInfo) {
+    formatted += `\n\n## Additional Information\n${summary.additionalInfo}`
+  }
+
+  return formatted.trim()
 }
