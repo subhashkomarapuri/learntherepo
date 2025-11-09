@@ -89,7 +89,7 @@ You have access to a web search tool (tavily_search) that can help you find:
 
 ## Formating:
 - Use appropriate markdown, especially for code snippets, code blocks, links and lists.
-`
+- For the code blocks, always correctly specify the language for syntax highlighting.`
 
   // No relevant documentation found - suggest using web search
   if (!ragSources || ragSources.length === 0) {
