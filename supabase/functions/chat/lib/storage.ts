@@ -423,3 +423,73 @@ export async function getRecentSessions(
     }
   })
 }
+
+/**
+ * Get all chat sessions with pagination
+ */
+export async function getAllSessions(
+  client: SupabaseClient,
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ sessions: ChatSessionInfo[]; total: number }> {
+  // Get total count
+  const { count, error: countError } = await client
+    .from('chat_sessions')
+    .select('*', { count: 'exact', head: true })
+
+  if (countError) {
+    console.error('Error counting sessions:', countError)
+    throw new Error(`Failed to count sessions: ${countError.message}`)
+  }
+
+  // Get paginated sessions with repository info
+  const { data, error } = await client
+    .from('chat_sessions')
+    .select(`
+      id,
+      repository_id,
+      created_at,
+      repositories (
+        owner,
+        repo,
+        ref
+      )
+    `)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1)
+
+  if (error) {
+    console.error('Error getting all sessions:', error)
+    throw new Error(`Failed to get sessions: ${error.message}`)
+  }
+
+  // Get message counts and summary status for each session using RPC
+  const sessions: ChatSessionInfo[] = await Promise.all(
+    data.map(async (session: { id: string; repository_id: string; created_at: string; repositories: { owner: string; repo: string; ref: string } | { owner: string; repo: string; ref: string }[] }) => {
+      const repo = Array.isArray(session.repositories) ? session.repositories[0] : session.repositories
+      
+      // Get message count
+      const messageCount = await getMessageCount(client, session.id)
+      
+      // Check if summary exists
+      const summaryExists = await hasSummary(client, session.repository_id)
+      
+      return {
+        sessionId: session.id,
+        repositoryId: session.repository_id,
+        repositoryOwner: repo.owner,
+        repositoryName: repo.repo,
+        repositoryRef: repo.ref,
+        sessionCreatedAt: session.created_at,
+        messageCount,
+        hasSummary: summaryExists
+      }
+    })
+  )
+
+  return {
+    sessions,
+    total: count || 0
+  }
+}
+

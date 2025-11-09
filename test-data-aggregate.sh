@@ -74,8 +74,7 @@ RESPONSE=$(curl -s -X POST "${SUPABASE_URL}/functions/v1/data-aggregate" \
     -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
     -H "Content-Type: application/json" \
     -d "{
-        \"url\": \"${TEST_REPO}\",
-        \"ref\": \"master\"
+        \"url\": \"${TEST_REPO}\"
     }")
 
 echo "$RESPONSE" | jq '.' || echo "$RESPONSE"
@@ -152,8 +151,7 @@ DUPLICATE_RESPONSE=$(curl -s -X POST "${SUPABASE_URL}/functions/v1/data-aggregat
     -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
     -H "Content-Type: application/json" \
     -d "{
-        \"url\": \"${TEST_REPO}\",
-        \"ref\": \"master\"
+        \"url\": \"${TEST_REPO}\"
     }")
 
 if echo "$DUPLICATE_RESPONSE" | grep -q '"success":false'; then
@@ -172,7 +170,6 @@ FORCE_RESPONSE=$(curl -s -X POST "${SUPABASE_URL}/functions/v1/data-aggregate" \
     -H "Content-Type: application/json" \
     -d "{
         \"url\": \"${TEST_REPO}\",
-        \"ref\": \"master\",
         \"force\": true
     }")
 

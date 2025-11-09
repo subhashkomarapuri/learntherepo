@@ -6,7 +6,7 @@
  * Base request interface with action discriminator
  */
 export interface BaseChatRequest {
-  action: 'init' | 'summary' | 'message' | 'history'
+  action: 'init' | 'summary' | 'message' | 'history' | 'list_sessions' | 'delete_session'
 }
 
 /**
@@ -49,9 +49,26 @@ export interface HistoryRequest extends BaseChatRequest {
 }
 
 /**
+ * List all sessions request
+ */
+export interface ListSessionsRequest extends BaseChatRequest {
+  action: 'list_sessions'
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Delete session request
+ */
+export interface DeleteSessionRequest extends BaseChatRequest {
+  action: 'delete_session'
+  sessionId: string
+}
+
+/**
  * Union type for all chat requests
  */
-export type ChatRequest = InitChatRequest | SummaryRequest | MessageRequest | HistoryRequest
+export type ChatRequest = InitChatRequest | SummaryRequest | MessageRequest | HistoryRequest | ListSessionsRequest | DeleteSessionRequest
 
 /**
  * RAG configuration options
@@ -176,6 +193,23 @@ export interface HistoryResponse {
   messages: ChatMessage[]
   summary?: RepositorySummary
   totalMessages: number
+}
+
+/**
+ * Response for list_sessions action
+ */
+export interface ListSessionsResponse {
+  success: boolean
+  sessions: ChatSessionInfo[]
+  totalSessions: number
+}
+
+/**
+ * Response for delete_session action
+ */
+export interface DeleteSessionResponse {
+  success: boolean
+  message: string
 }
 
 /**

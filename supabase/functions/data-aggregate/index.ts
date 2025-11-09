@@ -44,6 +44,46 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
 }
 
 /**
+ * Detects the default branch for a GitHub repository
+ */
+async function detectDefaultBranch(
+  owner: string,
+  repo: string,
+  ref?: string
+): Promise<string> {
+  // If ref is explicitly provided, use it
+  if (ref) {
+    return ref
+  }
+
+  try {
+    // Query GitHub API for repository info to get default branch
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}`
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Supabase-Edge-Function'
+    }
+
+    const response = await fetch(apiUrl, { headers })
+    
+    if (response.ok) {
+      const repoData = await response.json()
+      if (repoData.default_branch) {
+        console.log(`Detected default branch: ${repoData.default_branch}`)
+        return repoData.default_branch
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to detect default branch from API:', error)
+  }
+
+  // Fallback: try 'main' first, then 'master'
+  console.log('Using fallback default branch: main')
+  return 'main'
+}
+
+/**
  * Fetches README content using github-doc function
  */
 async function fetchReadme(
@@ -183,7 +223,7 @@ Deno.serve(async (req) => {
     }
 
     const { owner, repo } = parsed
-    const ref = body.ref || 'main'
+    const ref = await detectDefaultBranch(owner, repo, body.ref)
 
     // Get configuration from environment
     const supabaseUrl = Deno.env.get('SUPABASE_URL')

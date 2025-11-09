@@ -45,7 +45,7 @@ Return ONLY a valid JSON object with this exact structure (no additional text):
     {"title": "Link title", "url": "https://..."},
     ...
   ],
-  "quickStart": "Brief summary of how to get started (installation, setup, basic usage)",
+  "quickStart": "Consise and step-by-step guide of how to get started (installation, setup, basic usage); Make sure to include code snippets or commands if applicable.",
   "useCases": ["Use case 1", "Use case 2", ...],
   "additionalInfo": "Any other relevant information about the project"
 }
@@ -86,6 +86,9 @@ You have access to a web search tool (tavily_search) that can help you find:
 - Be helpful, accurate, and concise
 - Cite sources when referencing specific documentation
 - If uncertain, acknowledge limitations honestly
+
+## Formating:
+- Use appropriate markdown, especially for code snippets, code blocks, links and lists.
 `
 
   // No relevant documentation found - suggest using web search

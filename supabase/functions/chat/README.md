@@ -328,6 +328,105 @@ curl -X POST http://127.0.0.1:54321/functions/v1/chat \
   }'
 ```
 
+---
+
+### Action 5: List Sessions
+
+List all chat sessions with pagination (useful for chat history feature).
+
+**Request**:
+```json
+{
+  "action": "list_sessions",
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Parameters**:
+- `action` (required): Must be `"list_sessions"`
+- `limit` (optional): Max sessions to return, default: `50`, max: `200`
+- `offset` (optional): Skip first N sessions, default: `0`
+
+**Response**:
+```json
+{
+  "success": true,
+  "sessions": [
+    {
+      "sessionId": "uuid-1",
+      "repositoryId": "uuid",
+      "repositoryOwner": "supabase",
+      "repositoryName": "supabase",
+      "repositoryRef": "main",
+      "sessionCreatedAt": "2024-01-01T00:00:00Z",
+      "messageCount": 15,
+      "hasSummary": true
+    },
+    {
+      "sessionId": "uuid-2",
+      "repositoryId": "uuid",
+      "repositoryOwner": "openai",
+      "repositoryName": "openai-python",
+      "repositoryRef": "main",
+      "sessionCreatedAt": "2024-01-02T00:00:00Z",
+      "messageCount": 8,
+      "hasSummary": true
+    }
+  ],
+  "totalSessions": 42
+}
+```
+
+**Example**:
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/chat \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "list_sessions",
+    "limit": 10,
+    "offset": 0
+  }'
+```
+
+---
+
+### Action 6: Delete Session
+
+Delete a chat session and all its messages.
+
+**Request**:
+```json
+{
+  "action": "delete_session",
+  "sessionId": "uuid-to-delete"
+}
+```
+
+**Parameters**:
+- `action` (required): Must be `"delete_session"`
+- `sessionId` (required): Session ID to delete
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Session uuid-to-delete deleted successfully"
+}
+```
+
+**Example**:
+```bash
+curl -X POST http://127.0.0.1:54321/functions/v1/chat \
+  -H "Authorization: Bearer YOUR_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "delete_session",
+    "sessionId": "YOUR_SESSION_ID"
+  }'
+```
+
 ## Configuration
 
 ### Model Settings (`lib/config.ts`)
@@ -415,6 +514,24 @@ curl -X POST http://127.0.0.1:54321/functions/v1/chat \
     \"action\": \"history\",
     \"sessionId\": \"${SESSION_ID}\"
   }"
+
+# 5. List all sessions
+curl -X POST http://127.0.0.1:54321/functions/v1/chat \
+  -H "Authorization: Bearer ${ANON_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "list_sessions",
+    "limit": 10
+  }'
+
+# 6. Delete a session
+curl -X POST http://127.0.0.1:54321/functions/v1/chat \
+  -H "Authorization: Bearer ${ANON_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"action\": \"delete_session\",
+    \"sessionId\": \"${SESSION_ID}\"
+  }"
 ```
 
 ### Frontend Integration (TypeScript)
@@ -454,6 +571,22 @@ async function getHistory(sessionId: string) {
     body: { action: 'history', sessionId }
   })
   return data.messages
+}
+
+// List all sessions
+async function listSessions(limit: number = 20, offset: number = 0) {
+  const { data } = await supabase.functions.invoke('chat', {
+    body: { action: 'list_sessions', limit, offset }
+  })
+  return data.sessions
+}
+
+// Delete session
+async function deleteSession(sessionId: string) {
+  const { data } = await supabase.functions.invoke('chat', {
+    body: { action: 'delete_session', sessionId }
+  })
+  return data.success
 }
 ```
 

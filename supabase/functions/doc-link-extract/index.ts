@@ -58,6 +58,50 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
 }
 
 /**
+ * Detects the default branch for a GitHub repository
+ * @param owner - Repository owner
+ * @param repo - Repository name
+ * @param ref - Optional explicit ref; if provided, returns it directly
+ * @returns The branch name to use
+ */
+async function detectDefaultBranch(
+  owner: string,
+  repo: string,
+  ref?: string
+): Promise<string> {
+  // If ref is explicitly provided, use it
+  if (ref) {
+    return ref
+  }
+
+  try {
+    // Query GitHub API for repository info to get default branch
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}`
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Supabase-Edge-Function'
+    }
+
+    const response = await fetch(apiUrl, { headers })
+    
+    if (response.ok) {
+      const repoData = await response.json()
+      if (repoData.default_branch) {
+        console.log(`Detected default branch: ${repoData.default_branch}`)
+        return repoData.default_branch
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to detect default branch from API:', error)
+  }
+
+  // Fallback: try 'main' first, then 'master'
+  console.log('Using fallback default branch: main')
+  return 'main'
+}
+
+/**
  * Extracts all markdown links from content
  * Returns array of {text, url} objects
  */
@@ -224,6 +268,9 @@ Deno.serve(async (req) => {
 
     const { owner, repo } = parsed
 
+    // Detect the default branch if not explicitly provided
+    const detectedRef = await detectDefaultBranch(owner, repo, body.ref)
+
     // Get Supabase configuration from environment
     const supabaseUrl = Deno.env.get('SUPABASE_URL')
     const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')
@@ -245,7 +292,7 @@ Deno.serve(async (req) => {
     const githubDocUrl = `${supabaseUrl}/functions/v1/github-doc`
     const githubDocRequest = {
       url: body.url,
-      ref: body.ref,
+      ref: detectedRef,
       mediaType: 'raw'
     }
 
@@ -300,7 +347,7 @@ Deno.serve(async (req) => {
       .filter(link => isLikelyDocumentation(link.text, link.url))
       .map(link => {
         // Convert relative URLs to absolute GitHub URLs
-        const absoluteUrl = toAbsoluteUrl(link.url, owner, repo, body.ref || 'main')
+        const absoluteUrl = toAbsoluteUrl(link.url, owner, repo, detectedRef)
         
         return {
           url: absoluteUrl,
@@ -317,7 +364,7 @@ Deno.serve(async (req) => {
         success: true,
         owner,
         repo,
-        ref: body.ref || 'main',
+        ref: detectedRef,
         totalLinks: allLinks.length,
         documentationLinks: docLinks.length,
         links: docLinks

@@ -8,10 +8,14 @@ import type {
   SummaryRequest,
   MessageRequest,
   HistoryRequest,
+  ListSessionsRequest,
+  DeleteSessionRequest,
   InitChatResponse,
   SummaryResponse,
   MessageResponse,
   HistoryResponse,
+  ListSessionsResponse,
+  DeleteSessionResponse,
   ErrorResponse
 } from './lib/types.ts'
 import {
@@ -24,7 +28,9 @@ import {
   storeSummary,
   getSummary,
   getRepositoryBySession,
-  getMessageCount
+  getMessageCount,
+  getAllSessions,
+  deleteChatSession
 } from './lib/storage.ts'
 import { generateSummary } from './lib/summary.ts'
 import { performRAG } from './lib/rag.ts'
@@ -52,6 +58,46 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   } catch (_error) {
     return null
   }
+}
+
+/**
+ * Detects the default branch for a GitHub repository
+ */
+async function detectDefaultBranch(
+  owner: string,
+  repo: string,
+  ref?: string
+): Promise<string> {
+  // If ref is explicitly provided, use it
+  if (ref) {
+    return ref
+  }
+
+  try {
+    // Query GitHub API for repository info to get default branch
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}`
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Supabase-Edge-Function'
+    }
+
+    const response = await fetch(apiUrl, { headers })
+    
+    if (response.ok) {
+      const repoData = await response.json()
+      if (repoData.default_branch) {
+        console.log(`Detected default branch: ${repoData.default_branch}`)
+        return repoData.default_branch
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to detect default branch from API:', error)
+  }
+
+  // Fallback: try 'main' first, then 'master'
+  console.log('Using fallback default branch: main')
+  return 'main'
 }
 
 /**
@@ -110,7 +156,7 @@ async function handleInit(
   supabaseServiceKey: string,
   supabaseAnonKey: string
 ): Promise<InitChatResponse | ErrorResponse> {
-  const { githubUrl, ref = 'main', force = false } = request
+  const { githubUrl, ref, force = false } = request
 
   // Parse GitHub URL
   const parsed = parseGitHubUrl(githubUrl)
@@ -124,23 +170,26 @@ async function handleInit(
 
   const { owner, repo } = parsed
 
+  // Detect the default branch if not explicitly provided
+  const detectedRef = await detectDefaultBranch(owner, repo, ref)
+
   // Create Supabase client
   const client = createClient(supabaseUrl, supabaseServiceKey)
 
   // Check if repository exists in database
-  let repository = await getRepository(client, owner, repo, ref)
+  let repository = await getRepository(client, owner, repo, detectedRef)
   let status: 'created' | 'existing' = 'existing'
 
   if (!repository) {
     // Process repository with data-aggregate
-    console.log(`Processing new repository: ${owner}/${repo}@${ref}`)
-    const result = await processRepository(githubUrl, ref, force, supabaseUrl, supabaseAnonKey)
+    console.log(`Processing new repository: ${owner}/${repo}@${detectedRef}`)
+    const result = await processRepository(githubUrl, detectedRef, force, supabaseUrl, supabaseAnonKey)
     
     if (result.repositoryId) {
-      repository = { id: result.repositoryId, owner, repo, ref, url: githubUrl }
+      repository = { id: result.repositoryId, owner, repo, ref: detectedRef, url: githubUrl }
     } else {
       // Get from database (exists but wasn't processed)
-      repository = await getRepository(client, owner, repo, ref)
+      repository = await getRepository(client, owner, repo, detectedRef)
     }
     status = result.status
   } else {
@@ -415,6 +464,81 @@ async function handleHistory(
   }
 }
 
+/**
+ * Handle list_sessions action - list all chat sessions
+ */
+async function handleListSessions(
+  request: ListSessionsRequest,
+  supabaseUrl: string,
+  supabaseServiceKey: string
+): Promise<ListSessionsResponse | ErrorResponse> {
+  const { limit = SESSION_CONFIG.defaultHistoryLimit, offset = 0 } = request
+
+  const client = createClient(supabaseUrl, supabaseServiceKey)
+
+  try {
+    // Get all sessions with pagination
+    const { sessions, total } = await getAllSessions(
+      client,
+      Math.min(limit, SESSION_CONFIG.maxHistoryLimit),
+      offset
+    )
+
+    return {
+      success: true,
+      sessions,
+      totalSessions: total
+    }
+  } catch (error) {
+    console.error('Error listing sessions:', error)
+    return {
+      success: false,
+      error: 'database_error',
+      message: error instanceof Error ? error.message : 'Failed to list sessions'
+    }
+  }
+}
+
+/**
+ * Handle delete_session action - delete a chat session
+ */
+async function handleDeleteSession(
+  request: DeleteSessionRequest,
+  supabaseUrl: string,
+  supabaseServiceKey: string
+): Promise<DeleteSessionResponse | ErrorResponse> {
+  const { sessionId } = request
+
+  const client = createClient(supabaseUrl, supabaseServiceKey)
+
+  // Check if session exists
+  const sessionInfo = await getChatSessionInfo(client, sessionId)
+  if (!sessionInfo) {
+    return {
+      success: false,
+      error: 'session_not_found',
+      message: 'Chat session not found'
+    }
+  }
+
+  try {
+    // Delete the session (cascade will delete messages)
+    await deleteChatSession(client, sessionId)
+
+    return {
+      success: true,
+      message: `Session ${sessionId} deleted successfully`
+    }
+  } catch (error) {
+    console.error('Error deleting session:', error)
+    return {
+      success: false,
+      error: 'database_error',
+      message: error instanceof Error ? error.message : 'Failed to delete session'
+    }
+  }
+}
+
 console.log("Chat Function Started!")
 
 Deno.serve(async (req) => {
@@ -492,6 +616,14 @@ Deno.serve(async (req) => {
         result = await handleHistory(body, supabaseUrl, supabaseServiceKey)
         break
 
+      case 'list_sessions':
+        result = await handleListSessions(body, supabaseUrl, supabaseServiceKey)
+        break
+
+      case 'delete_session':
+        result = await handleDeleteSession(body, supabaseUrl, supabaseServiceKey)
+        break
+
       default:
         return new Response(
           JSON.stringify({
@@ -567,5 +699,17 @@ Deno.serve(async (req) => {
        -H "Authorization: Bearer YOUR_ANON_KEY" \
        -H "Content-Type: application/json" \
        -d '{"action":"history","sessionId":"SESSION_ID"}'
+
+  8. List all sessions:
+     curl -X POST http://127.0.0.1:54321/functions/v1/chat \
+       -H "Authorization: Bearer YOUR_ANON_KEY" \
+       -H "Content-Type: application/json" \
+       -d '{"action":"list_sessions","limit":10,"offset":0}'
+
+  9. Delete a session:
+     curl -X POST http://127.0.0.1:54321/functions/v1/chat \
+       -H "Authorization: Bearer YOUR_ANON_KEY" \
+       -H "Content-Type: application/json" \
+       -d '{"action":"delete_session","sessionId":"SESSION_ID"}'
 
 */

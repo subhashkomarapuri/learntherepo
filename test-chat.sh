@@ -15,22 +15,33 @@ NC='\033[0m' # No Color
 ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
 BASE_URL="http://127.0.0.1:54321/functions/v1/chat"
 GITHUB_URL="${1:-https://github.com/supabase/supabase}"
-REF="${2:-master}"  # Changed default from main to master for octocat/Hello-World
+REF="${2}"  # Optional branch/ref parameter, will auto-detect if not provided
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  Chat Function Test${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 echo -e "Testing with repository: ${YELLOW}$GITHUB_URL${NC}"
-echo -e "Branch/Ref: ${YELLOW}$REF${NC}"
+if [ -n "$REF" ]; then
+    echo -e "Branch/Ref: ${YELLOW}$REF${NC}"
+else
+    echo -e "Branch/Ref: ${YELLOW}auto-detect${NC}"
+fi
 echo ""
 
 # Step 1: Initialize session
 echo -e "${GREEN}1️⃣  Initializing chat session...${NC}"
-INIT_RESPONSE=$(curl -s -X POST "$BASE_URL" \
-  -H "Authorization: Bearer $ANON_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{\"action\":\"init\",\"githubUrl\":\"$GITHUB_URL\",\"ref\":\"$REF\"}")
+if [ -n "$REF" ]; then
+    INIT_RESPONSE=$(curl -s -X POST "$BASE_URL" \
+      -H "Authorization: Bearer $ANON_KEY" \
+      -H "Content-Type: application/json" \
+      -d "{\"action\":\"init\",\"githubUrl\":\"$GITHUB_URL\",\"ref\":\"$REF\"}")
+else
+    INIT_RESPONSE=$(curl -s -X POST "$BASE_URL" \
+      -H "Authorization: Bearer $ANON_KEY" \
+      -H "Content-Type: application/json" \
+      -d "{\"action\":\"init\",\"githubUrl\":\"$GITHUB_URL\"}")
+fi
 
 echo "$INIT_RESPONSE" | jq '.'
 

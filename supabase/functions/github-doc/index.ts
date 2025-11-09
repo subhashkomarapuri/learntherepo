@@ -42,6 +42,50 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
 }
 
 /**
+ * Detects the default branch for a GitHub repository
+ * @param owner - Repository owner
+ * @param repo - Repository name
+ * @param ref - Optional explicit ref; if provided, returns it directly
+ * @returns The branch name to use
+ */
+async function detectDefaultBranch(
+  owner: string,
+  repo: string,
+  ref?: string
+): Promise<string> {
+  // If ref is explicitly provided, use it
+  if (ref) {
+    return ref
+  }
+
+  try {
+    // Query GitHub API for repository info to get default branch
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}`
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Supabase-Edge-Function'
+    }
+
+    const response = await fetch(apiUrl, { headers })
+    
+    if (response.ok) {
+      const repoData = await response.json()
+      if (repoData.default_branch) {
+        console.log(`Detected default branch: ${repoData.default_branch}`)
+        return repoData.default_branch
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to detect default branch from API:', error)
+  }
+
+  // Fallback: try 'main' first, then 'master'
+  console.log('Using fallback default branch: main')
+  return 'main'
+}
+
+/**
  * Gets the appropriate Accept header based on media type
  * @param mediaType - The requested media type
  * @returns The Accept header value
@@ -145,14 +189,17 @@ Deno.serve(async (req) => {
 
     const { owner, repo } = parsed
 
+    // Detect the default branch if not explicitly provided
+    const detectedRef = await detectDefaultBranch(owner, repo, body.ref)
+
     // Fetch README from GitHub API with fallback for different filename variations
-    const result = await fetchReadmeWithFallback(owner, repo, body.ref, body.mediaType)
+    const result = await fetchReadmeWithFallback(owner, repo, detectedRef, body.mediaType)
 
     if (!result) {
       return new Response(
         JSON.stringify({
           error: 'README not found',
-          message: `No README file found in repository ${owner}/${repo}${body.ref ? ` for ref '${body.ref}'` : ''}`,
+          message: `No README file found in repository ${owner}/${repo}${detectedRef ? ` for ref '${detectedRef}'` : ''}`,
           status: 404
         }),
         { 
@@ -170,7 +217,7 @@ Deno.serve(async (req) => {
       
       switch (response.status) {
         case 404:
-          errorMessage = `README not found in repository${body.ref ? ` for ref '${body.ref}'` : ''}`
+          errorMessage = `README not found in repository${detectedRef ? ` for ref '${detectedRef}'` : ''}`
           break
         case 403:
           errorMessage = 'Rate limit exceeded or access forbidden'
@@ -221,7 +268,7 @@ Deno.serve(async (req) => {
         success: true,
         owner,
         repo,
-        ref: body.ref,
+        ref: detectedRef,
         filename,
         mediaType: body.mediaType || 'default',
         data
