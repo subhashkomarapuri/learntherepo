@@ -1,6 +1,6 @@
-# GitHub AI Summarizer
+# Learn the repo quick
 
-# githubaisummarizer
+# Interact with AI assistant and get all your doubts cleared in moments
 
 Summarizes any Github repo to an understandable level and gives you the key insights and helps you with the content the developers wanna build further.
 
